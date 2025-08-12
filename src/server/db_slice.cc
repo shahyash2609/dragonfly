@@ -703,6 +703,19 @@ OpResult<DbSlice::ItAndUpdater> DbSlice::AddOrFindInternal(const Context& cntx, 
   // configuration we disable this checks on loading and replication.
   bool apply_memory_limit =
       !owner_->IsReplica() && !(ServerState::tlocal()->gstate() == GlobalState::LOADING);
+  
+  // Strict memory enforcement during LOADING: block at 50% of max memory
+  if (ServerState::tlocal()->gstate() == GlobalState::LOADING && owner_->tiered_storage()) {
+    size_t max_memory_per_shard = max_memory_limit.load(memory_order_relaxed) / shard_set->size();
+    size_t memory_threshold = max_memory_per_shard / 2;  // 50% of max memory
+    while (owner_->UsedMemory() > memory_threshold) {
+      owner_->tiered_storage()->RunOffloading(cntx.db_index);
+      VLOG_EVERY_N(1, 2000) << "Blocking insertion - 50% memory threshold exceeded during LOADING. "
+                            << "Used: " << owner_->UsedMemory() 
+                            << " Threshold (50%): " << memory_threshold;
+      ThisFiber::SleepFor(5ms);
+    }
+  }
 
   // If we are over limit in non-cache scenario, just be conservative and throw.
   if (apply_memory_limit && !IsCacheMode() && memory_budget_ + memory_offset < 0) {

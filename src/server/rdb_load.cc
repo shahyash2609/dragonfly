@@ -2654,6 +2654,32 @@ void RdbLoader::CreateObjectOnShard(const DbContext& db_cntx, const Item* item, 
     while (db_slice->shard_owner()->ShouldThrottleForTiering())
       ThisFiber::SleepFor(100us);
   }
+
+  // During LOADING state, enforce 50% memory limit by blocking until memory is freed
+  if (ServerState::tlocal()->gstate() == GlobalState::LOADING) {
+    auto* engine_shard = db_slice->shard_owner();
+    size_t max_memory_per_shard = max_memory_limit.load(memory_order_relaxed) / shard_set->size();
+    size_t memory_threshold = max_memory_per_shard / 2;  // 50% of max memory
+    
+    // Wait until memory usage is below 50% threshold
+    while (true) {
+      size_t used_memory = engine_shard->UsedMemory();
+      if (used_memory <= memory_threshold) {
+        break;
+      }
+      
+      // Force tiered storage to work harder
+      if (auto* ts = engine_shard->tiered_storage()) {
+        ts->RunOffloading(db_cntx.db_index);
+      }
+      
+      VLOG_EVERY_N(1, 1000) << "Memory at 50% threshold during restore. Used: " << used_memory 
+                            << " Threshold (50%): " << memory_threshold 
+                            << " Waiting for offloading...";
+      
+      ThisFiber::SleepFor(10ms);  // Wait for offloading to make progress
+    }
+  }
 }
 
 void RdbLoader::LoadItemsBuffer(DbIndex db_ind, const ItemsBuf& ib) {
