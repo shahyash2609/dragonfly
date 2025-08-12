@@ -341,6 +341,8 @@ class RdbLoader : protected RdbLoaderBase {
   bool override_existing_keys_ = false;
   bool load_unowned_slots_ = false;
   bool rdb_ignore_expiry_;
+  bool rdb_relative_ttl_;
+  int64_t rdb_ctime_ = 0;  // RDB creation time in seconds
   uint32_t shard_id_ = UINT32_MAX;
   uint32_t shard_count_ = 0;
   size_t table_used_memory_ = 0;

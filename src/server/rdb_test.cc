@@ -912,4 +912,70 @@ TEST_F(RdbTest, RDBIgnoreExpiryFlag) {
   EXPECT_EQ(ttl2, -1);
 }
 
+TEST_F(RdbTest, RelativeTTL) {
+  absl::FlagSaver fs;
+  
+  // Create keys with different TTLs
+  Run({"set", "key1", "val1"});
+  Run({"expire", "key1", "60"});  // 60 seconds
+  
+  Run({"set", "key2", "val2"});
+  Run({"expire", "key2", "3600"});  // 1 hour
+  
+  Run({"set", "key3", "val3"});  // No expiration
+  
+  // Save to RDB
+  RespExpr resp = Run({"save", "df"});
+  ASSERT_EQ(resp, "OK");
+  auto save_info = service_->server_family().GetLastSaveInfo();
+  
+  // Simulate time passing (30 seconds)
+  AdvanceTime(30000);
+  
+  // Load without relative TTL (default behavior)
+  resp = Run({"flushall"});
+  ASSERT_EQ(resp, "OK");
+  
+  resp = Run({"dfly", "load", save_info.file_name});
+  ASSERT_EQ(resp, "OK");
+  
+  // key1 should have ~30 seconds left
+  int ttl1 = CheckedInt({"ttl", "key1"});
+  EXPECT_GT(ttl1, 25);
+  EXPECT_LT(ttl1, 35);
+  
+  // key2 should have ~3570 seconds left  
+  int ttl2 = CheckedInt({"ttl", "key2"});
+  EXPECT_GT(ttl2, 3565);
+  EXPECT_LT(ttl2, 3575);
+  
+  // key3 should not expire
+  int ttl3 = CheckedInt({"ttl", "key3"});
+  EXPECT_EQ(ttl3, -1);
+  
+  // Now test with relative TTL flag
+  SetTestFlag("rdb_relative_ttl", "true");
+  
+  resp = Run({"flushall"});
+  ASSERT_EQ(resp, "OK");
+  
+  resp = Run({"dfly", "load", save_info.file_name});
+  ASSERT_EQ(resp, "OK");
+  
+  // With relative TTL, keys should have their original TTLs preserved
+  // key1 should have ~60 seconds (original TTL)
+  ttl1 = CheckedInt({"ttl", "key1"});
+  EXPECT_GT(ttl1, 55);
+  EXPECT_LT(ttl1, 65);
+  
+  // key2 should have ~3600 seconds (original TTL)
+  ttl2 = CheckedInt({"ttl", "key2"});  
+  EXPECT_GT(ttl2, 3595);
+  EXPECT_LT(ttl2, 3605);
+  
+  // key3 should still not expire
+  ttl3 = CheckedInt({"ttl", "key3"});
+  EXPECT_EQ(ttl3, -1);
+}
+
 }  // namespace dfly
