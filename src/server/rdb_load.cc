@@ -56,6 +56,9 @@ ABSL_DECLARE_FLAG(int32_t, list_compress_depth);
 ABSL_DECLARE_FLAG(uint32_t, dbnum);
 ABSL_FLAG(bool, rdb_load_dry_run, false, "Dry run RDB load without applying changes");
 ABSL_FLAG(bool, rdb_ignore_expiry, false, "Ignore Key Expiry when loding from RDB snapshot");
+ABSL_FLAG(bool, rdb_relative_ttl, false, 
+          "Preserve relative TTL during RDB restore. Keys maintain their remaining TTL "
+          "from the time of backup rather than using absolute expiration times");
 
 namespace dfly {
 
@@ -1935,6 +1938,7 @@ RdbLoader::RdbLoader(Service* service, std::string snapshot_id)
     : service_{service},
       snapshot_id_(std::move(snapshot_id)),
       rdb_ignore_expiry_{GetFlag(FLAGS_rdb_ignore_expiry)},
+      rdb_relative_ttl_{GetFlag(FLAGS_rdb_relative_ttl)},
       script_mgr_{service == nullptr ? nullptr : service->script_mgr()},
       shard_buf_{shard_set->size()} {
 }
@@ -2033,6 +2037,16 @@ error_code RdbLoader::Load(io::Source* src) {
        * with RDB v3. Like EXPIRETIME but no with more precision. */
       SET_OR_RETURN(FetchInt<int64_t>(), val);
       if (!rdb_ignore_expiry_) {
+        if (rdb_relative_ttl_ && rdb_ctime_ > 0) {
+          // Calculate elapsed time since RDB creation (in milliseconds)
+          int64_t elapsed_ms = (time(NULL) - rdb_ctime_) * 1000;
+          // Adjust expiration time to preserve relative TTL
+          val += elapsed_ms;
+          VLOG(2) << "Adjusted expiration by " << elapsed_ms << "ms for relative TTL";
+        } else if (rdb_relative_ttl_ && rdb_ctime_ == 0) {
+          LOG_FIRST_N(WARNING, 1) << "RDB has no creation time. "
+                                  << "Relative TTL adjustment cannot be applied";
+        }
         settings.SetExpire(val);
       }
       continue; /* Read next opcode. */
@@ -2445,6 +2459,7 @@ error_code RdbLoader::HandleAux() {
   } else if (auxkey == "ctime") {
     int64_t ctime;
     if (absl::SimpleAtoi(auxval, &ctime)) {
+      rdb_ctime_ = ctime;  // Store RDB creation time
       time_t age = time(NULL) - ctime;
       if (age < 0)
         age = 0;
