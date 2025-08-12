@@ -30,7 +30,7 @@ class TieredStorage {
   class ShardOpManager;
 
  public:
-  const static size_t kMinValueSize = 64;
+  const static size_t kMinValueSize = 16;
 
   // Min sizes of values taking up full page on their own
   const static size_t kMinOccupancySize = tiering::kPageSize / 2;
@@ -137,7 +137,7 @@ class TieredStorage {
   class ShardOpManager;
 
  public:
-  const static size_t kMinValueSize = 64;
+  const static size_t kMinValueSize = 16;
 
   // Min sizes of values taking up full page on their own
   const static size_t kMinOccupancySize = tiering::kPageSize / 2;
