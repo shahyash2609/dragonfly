@@ -36,13 +36,3 @@ repos:
     rev: v8.16.3
     hooks:
       - id: gitleaks
-
-
-  - repo: local
-    hooks:
-      - id: trufflehog
-        name: TruffleHog
-        description: Detect secrets in your data.
-        entry: "trufflehog/trufflehog-hook.sh"
-        language: script
-        stages: ["pre-commit", "pre-push"]
