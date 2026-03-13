@@ -151,8 +151,14 @@ class TieredStorage::ShardOpManager : public tiering::OpManager {
 
   void DeleteOffloaded(DbIndex dbid, const tiering::DiskSegment& segment);
 
+  // Returns true if key still exists in db_slice as an external value at the given segment.
+  bool IsKeyExternal(DbIndex dbid, string_view key, tiering::DiskSegment segment) const {
+    auto* pv = Find(dbid, key);
+    return pv && pv->IsExternal() && tiering::DiskSegment{pv->GetExternalSlice()} == segment;
+  }
+
  private:
-  PrimeValue* Find(DbIndex dbid, string_view key) {
+  PrimeValue* Find(DbIndex dbid, string_view key) const {
     // TODO: Get DbContext for transaction for correct dbid and time
     // Bypass all update and stat mechanisms
     auto it = db_slice_.GetDBTable(dbid)->prime.Find(key);
@@ -360,6 +366,11 @@ void TieredStorage::ShardOpManager::DeleteOffloaded(DbIndex dbid,
   OpManager::DeleteOffloaded(segment);
   stats->tiered_used_bytes -= segment.length;
   stats->tiered_entries--;
+}
+
+bool TieredStorage::IsKeyExternal(DbIndex dbid, string_view key,
+                                  tiering::DiskSegment segment) const {
+  return op_manager_->IsKeyExternal(dbid, key, segment);
 }
 
 TieredStorage::TieredStorage(size_t max_size, DbSlice* db_slice)
@@ -698,10 +709,21 @@ void StashPrimeValue(DbIndex dbid, std::string_view key, PrimeValue* pv, TieredS
 
 void ReadTiered(DbIndex dbid, std::string_view key, const PrimeValue& value,
                 function<void(io::Result<string_view>)> readf, TieredStorage* ts) {
-  auto cb = [readf = std::move(readf)](io::Result<tiering::StringDecoder*> res) mutable {
+  tiering::DiskSegment segment = value.GetExternalSlice();
+  // Capture key by value: the string_view may point into the prime table which can be modified
+  // by the time the io_uring read completes.
+  auto cb = [readf = std::move(readf), ts, dbid, key = string(key),
+             segment](io::Result<tiering::StringDecoder*> res) mutable {
+    // After a successful read, verify the key still points to the same external segment.
+    // If not (key expired or was replaced while the SSD read was in-flight), return null
+    // instead of serving stale data to the caller.
+    if (res && !ts->IsKeyExternal(dbid, key, segment)) {
+      readf(nonstd::make_unexpected(make_error_code(errc::operation_canceled)));
+      return;
+    }
     readf(res.transform([](tiering::StringDecoder* d) { return d->GetView(); }));
   };
-  ts->Read(dbid, key, value.GetExternalSlice(), tiering::StringDecoder{value}, std::move(cb));
+  ts->Read(dbid, key, segment, tiering::StringDecoder{value}, std::move(cb));
 }
 
 template <typename T>
