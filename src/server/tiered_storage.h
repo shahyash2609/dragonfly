@@ -99,6 +99,10 @@ class TieredStorage : public TieredStorageBase {
   // Run offloading loop until i/o device is loaded or all entries were traversed
   void RunOffloading(DbIndex dbid);
 
+  // Returns true if the key still exists in db_slice pointing to the given external segment.
+  // Used to detect key expiry/deletion that races with an in-flight tiered read.
+  bool IsKeyExternal(DbIndex dbid, std::string_view key, tiering::DiskSegment segment) const;
+
   // Prune cool entries to reach the set memory goal with freed memory
   size_t ReclaimMemory(size_t goal);
 
