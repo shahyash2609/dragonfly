@@ -2846,13 +2846,14 @@ void RdbLoader::CreateObjectOnShard(const DbContext& db_cntx, const Item* item, 
     while (db_slice->shard_owner()->ShouldThrottleForTiering())
       ThisFiber::SleepFor(100us);
 
-    // Block when tiered storage needs to offload (memory exceeds offload threshold),
+    // Block when tiered storage needs to offload AND there are pending writes in-flight,
     // giving the heartbeat-driven RunOffloading() time to flush data to tiered storage.
     // This pause also stops reading from the replication socket, which propagates TCP
     // backpressure to the master and naturally rate-limits data ingestion during full sync.
-    // We start throttling early (at the offload threshold) rather than waiting until
-    // memory_budget goes negative, to prevent runaway memory growth.
-    while (ts->ShouldOffload()) {
+    // We require WriteDepthUsage() > 0 to ensure offloading is making progress —
+    // without this check, we'd spin forever if memory stays above the threshold but
+    // there's nothing left to offload.
+    while (ts->ShouldOffload() && ts->WriteDepthUsage() > 0) {
       ThisFiber::SleepFor(1ms);
     }
   }
