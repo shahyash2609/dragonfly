@@ -541,6 +541,28 @@ class CompactObjBorrowOps : public cmn::BorrowedStringOps {
 
 CompactObjBorrowOps g_borrow_ops;
 
+// Thread-local static prefix substitution table (PREFIX_ENC). Maps configured key prefixes to
+// unique 1-byte tokens. Decode looks up by_token[token]; encode does a longest-prefix match.
+struct KeyPrefixTable {
+  std::array<string, 256> by_token;                 // token -> prefix ("" == unused)
+  std::vector<std::pair<string, uint8_t>> entries;  // {prefix, token} for longest-match scan
+  bool enabled = false;
+
+  // Longest configured prefix that `key` begins with. Returns token in [0,255] and prefix length,
+  // or token == -1 when nothing matches.
+  std::pair<int, size_t> Match(string_view key) const {
+    int best_token = -1;
+    size_t best_len = 0;
+    for (const auto& [prefix, token] : entries) {
+      if (prefix.size() > best_len && absl::StartsWith(key, prefix)) {
+        best_token = token;
+        best_len = prefix.size();
+      }
+    }
+    return {best_token, best_len};
+  }
+};
+
 struct TL {
   MemoryResource* local_mr = PMR_NS::get_default_resource();
   base::PODArray<uint8_t> tmp_buf;
@@ -549,6 +571,7 @@ struct TL {
   Huffman huff_keys, huff_string_values;
   uint64_t huff_encode_total = 0, huff_encode_success = 0;  // success/total metrics.
   PinnedMap pin_map;
+  KeyPrefixTable key_prefix;
 
   const HuffmanDecoder& GetHuffmanDecoder(uint8_t huffman_domain) const {
     return huffman_domain == CompactObj::HUFF_KEYS ? huff_keys.decoder : huff_string_values.decoder;
@@ -760,6 +783,25 @@ bool CompactObj::InitHuffmanThreadLocal(HuffmanDomain domain, std::string_view h
   return true;
 }
 
+bool CompactObj::SetKeyPrefixTableThreadLocal(const std::vector<KeyPrefixEntry>& entries) {
+  KeyPrefixTable t;
+  for (const auto& [prefix, token] : entries) {
+    if (prefix.empty() || prefix.size() > kMaxKeyPrefixLen)
+      return false;
+    if (!t.by_token[token].empty())  // duplicate token
+      return false;
+    t.by_token[token] = prefix;
+    t.entries.emplace_back(prefix, token);
+  }
+  t.enabled = !t.entries.empty();
+  tl.key_prefix = std::move(t);
+  return true;
+}
+
+bool CompactObj::IsKeyPrefixSubstitutionEnabled() {
+  return tl.key_prefix.enabled;
+}
+
 CompactObj::~CompactObj() {
   if (HasAllocated()) {
     Free();
@@ -768,7 +810,7 @@ CompactObj::~CompactObj() {
 
 CompactObj& CompactObj::operator=(CompactObj&& o) noexcept {
   DCHECK(&o != this);
-  DCHECK_EQ(is_key_, o.is_key_);
+  DCHECK_EQ(is_key(), o.is_key());
 
   SetMeta(o.taglen_, o.mask_);  // frees own previous resources
   encoding_ = o.encoding_;
@@ -786,9 +828,14 @@ size_t CompactObj::Size() const {
     return GetStrEncoding().DecodedSize(raw_size, huff_header);
   };
 
-  // For non-HUFFMAN_ENC encodings the header argument is ignored, so we only assemble it
-  // when needed to avoid touching extra bytes that may not exist (e.g. taglen_ == 1).
-  uint16_t huff_header = (encoding_ == HUFFMAN_ENC) ? GetHuffHeader() : 0;
+  // For NONE/ASCII encodings the header argument is ignored, so we only assemble it when needed to
+  // avoid touching extra bytes that may not exist (e.g. taglen_ == 1). HUFFMAN_ENC needs the 2-byte
+  // varint delta header; PREFIX_ENC needs the 1-byte token (its first stored byte).
+  uint16_t huff_header = 0;
+  if (encoding_ == HUFFMAN_ENC)
+    huff_header = GetHuffHeader();
+  else if (encoding_ == PREFIX_ENC || encoding_ == PREFIX_HUFFMAN_ENC)
+    huff_header = GetFirstByte();
 
   if (IsInline())
     return decoded_str_size(taglen_, huff_header);
@@ -1438,9 +1485,14 @@ string_view CompactObj::GetEncodedBlob(StrEncoding str_encoding, char* opt_dest)
   CHECK_EQ(taglen_, SMALL_TAG);
   auto& ss = u_.small_str;
   char* copy_dest = nullptr;
-  if (opt_dest && str_encoding.enc_ != HUFFMAN_ENC) {
+  // ASCII encodings expand in place, so we can decode straight into opt_dest right-aligned.
+  // HUFFMAN/PREFIX blobs are not a right-aligned expansion of their decoded form (and PREFIX's
+  // DecodedSize needs the token byte), so copy them to a scratch buffer first.
+  const bool in_place_ok = str_encoding.enc_ != HUFFMAN_ENC && str_encoding.enc_ != PREFIX_ENC &&
+                           str_encoding.enc_ != PREFIX_HUFFMAN_ENC;
+  if (opt_dest && in_place_ok) {
     // Write to rightmost location of dest buffer to leave some bytes for inline unpacking.
-    // huff_header is unused for non-HUFFMAN encodings; pass 0.
+    // huff_header is unused for ASCII encodings; pass 0.
     size_t decoded_len = str_encoding.DecodedSize(ss.size(), uint16_t{0});
     copy_dest = opt_dest + (decoded_len - ss.size());
   } else {
@@ -1773,7 +1825,10 @@ bool CompactObj::CmpNonInline(std::string_view sv) const {
 bool CompactObj::CmpEncoded(string_view sv) const {
   DCHECK(encoding_);
 
-  if (encoding_ == HUFFMAN_ENC) {
+  // HUFFMAN and PREFIX encodings are not byte-comparable against the logical key, so decode the
+  // stored form fully and compare. Encoding is deterministic, so this still hits only on real
+  // matches (a substituted key never aliases a literal one — the encodings differ).
+  if (encoding_ == HUFFMAN_ENC || encoding_ == PREFIX_ENC || encoding_ == PREFIX_HUFFMAN_ENC) {
     size_t sz = Size();
     if (sv.size() != sz)
       return false;
@@ -1866,6 +1921,38 @@ void CompactObj::EncodeString(string_view str) {
   DCHECK_GT(str.size(), kInlineLen);
   DCHECK_EQ(NONE_ENC, encoding_);
 
+  // Static prefix substitution (keys only): replace a configured key prefix with a 1-byte token.
+  // Stored form is [token][suffix]; decode prepends the prefix. Applied before huffman/ascii so the
+  // (usually inline-sized) result skips the heap allocation that drives per-key RAM.
+  if (is_key() && tl.key_prefix.enabled) {
+    auto [token, prefix_len] = tl.key_prefix.Match(str);
+    if (token >= 0) {
+      encoding_ = PREFIX_ENC;
+      string_view suffix = str.substr(prefix_len);
+      size_t blob_size = 1 + suffix.size();
+      if (blob_size <= kInlineLen) {
+        SetMeta(blob_size, mask_);
+        u_.inline_str[0] = uint8_t(token);
+        memcpy(u_.inline_str + 1, suffix.data(), suffix.size());
+        return;
+      }
+      // Suffix too long to inline — still a net win (smaller heap allocation). Store
+      // [token][suffix].
+      tl.tmp_buf.resize(blob_size);
+      tl.tmp_buf[0] = uint8_t(token);
+      memcpy(tl.tmp_buf.data() + 1, suffix.data(), suffix.size());
+      string_view blob{reinterpret_cast<char*>(tl.tmp_buf.data()), blob_size};
+      if (SmallString::CanAllocate(blob.size())) {
+        SetMeta(SMALL_TAG, mask_);
+        tl.small_str_bytes += u_.small_str.Assign(blob);
+      } else {
+        SetMeta(LARGE_STR_TAG, mask_);
+        u_.large_str.SetString(blob, tl.local_mr);
+      }
+      return;
+    }
+  }
+
   string_view encoded = str;
   bool huff_encoded = false;
 
@@ -1879,7 +1966,7 @@ void CompactObj::EncodeString(string_view str) {
 
   // if !is_ascii, we try huffman encoding next.
   if (!is_ascii && str.size() <= kMaxHuffLen) {
-    const auto& huffman = is_key_ ? tl.huff_keys : tl.huff_string_values;
+    const auto& huffman = is_key() ? tl.huff_keys : tl.huff_string_values;
     if (huffman.encoder.valid()) {
       HuffEncodeResult huff = TryHuffEncode(str, huffman.encoder);
 
@@ -2106,6 +2193,10 @@ size_t CompactObj::StrEncoding::DecodedSize(string_view blob) const {
       b1 = uint8_t(blob[1]);
     }
     huff_header = uint16_t(b0) | (uint16_t(b1) << 8);
+  } else if (enc_ == PREFIX_ENC || enc_ == PREFIX_HUFFMAN_ENC) {
+    // The token (prefix id) is the first stored byte.
+    DCHECK_GE(blob.size(), 1u);
+    huff_header = uint8_t(blob[0]);
   }
   return DecodedSize(blob.size(), huff_header);
 }
@@ -2123,6 +2214,14 @@ size_t CompactObj::StrEncoding::DecodedSize(size_t blob_size, uint16_t huff_head
       HuffHeader h{huff_header};
       return blob_size + size_t(h.delta) - h.header_len;
     }
+    case PREFIX_ENC: {
+      // blob is [1-byte token][suffix]; huff_header carries the token. Decoded = prefix + suffix.
+      uint8_t token = uint8_t(huff_header & 0xFF);
+      return tl.key_prefix.by_token[token].size() + (blob_size - 1);
+    }
+    case PREFIX_HUFFMAN_ENC:
+      LOG(DFATAL) << "PREFIX_HUFFMAN_ENC not implemented";
+      return 0;
   };
   return 0;
 }
@@ -2145,6 +2244,18 @@ size_t CompactObj::StrEncoding::Decode(std::string_view blob, char* dest) const 
       decoder.Decode(blob.substr(HuffHeaderLen(blob[0])), decoded_len, dest);
       break;
     }
+    case PREFIX_ENC: {
+      // blob is [token][suffix]. Move the suffix to its decoded offset first (it may already alias
+      // dest from the in-place SMALL path — hence memmove), then prepend the prefix.
+      const string& prefix = tl.key_prefix.by_token[uint8_t(blob[0])];
+      size_t suffix_len = blob.size() - 1;
+      memmove(dest + prefix.size(), blob.data() + 1, suffix_len);
+      memcpy(dest, prefix.data(), prefix.size());
+      break;
+    }
+    case PREFIX_HUFFMAN_ENC:
+      LOG(DFATAL) << "PREFIX_HUFFMAN_ENC not implemented";
+      break;
   };
   return decoded_len;
 }
@@ -2174,6 +2285,15 @@ bool CompactObj::StrEncoding::DecodeByte(std::string_view blob, size_t idx, uint
       *dest = decoded_huff_string[idx];
       break;
     }
+    case PREFIX_ENC: {
+      // idx within the prefix reads from the table; otherwise from the stored suffix (after token).
+      const string& prefix = tl.key_prefix.by_token[uint8_t(blob[0])];
+      *dest = idx < prefix.size() ? uint8_t(prefix[idx]) : uint8_t(blob[1 + idx - prefix.size()]);
+      break;
+    }
+    case PREFIX_HUFFMAN_ENC:
+      LOG(DFATAL) << "PREFIX_HUFFMAN_ENC not implemented";
+      return false;
   };
   return true;
 }

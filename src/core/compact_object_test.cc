@@ -1050,6 +1050,74 @@ TEST_F(CompactObjectTest, HuffmanVarintHeader) {
   EXPECT_TRUE(seen_2byte) << "Expected at least one 2-byte header (delta >= 128)";
 }
 
+// Static prefix substitution (PREFIX_ENC). Keys whose configured prefix is replaced with a 1-byte
+// token must round-trip identically, hash to the logical key, compare equal to the literal key,
+// and never alias a different literal key. Substitution applies to keys only, not values.
+TEST_F(CompactObjectTest, KeyPrefixSubstitution) {
+  const string kPrefix = "catalog__user_geohash_1_3:";  // 26-char constant prefix
+  std::vector<CompactObj::KeyPrefixEntry> entries{{kPrefix, 7}, {"orders:", 9}};
+  ASSERT_TRUE(CompactObj::SetKeyPrefixTableThreadLocal(entries));
+  ASSERT_TRUE(CompactObj::IsKeyPrefixSubstitutionEnabled());
+
+  auto roundtrip = [](const string& key) {
+    CompactKey k;
+    k.SetString(key);
+    EXPECT_EQ(key.size(), k.Size()) << key;
+    EXPECT_EQ(CompactObj::HashCode(key), k.HashCode()) << key;
+    EXPECT_TRUE(k == key) << key;  // tag-aware compare against the literal key
+    string actual;
+    k.GetString(&actual);
+    EXPECT_EQ(key, actual) << key;
+    for (size_t i = 0; i < key.size(); ++i) {
+      uint8_t res = 0;
+      ASSERT_TRUE(k.GetByteAtIndex(i, &res)) << key << " @" << i;
+      EXPECT_EQ(uint8_t(key[i]), res) << key << " @" << i;
+    }
+  };
+
+  // Matched: 26-char prefix + 14-char suffix -> [token][14] = 15 bytes -> inline.
+  string matched = kPrefix + "232472614|4442";
+  roundtrip(matched);
+  {
+    CompactKey k;
+    k.SetString(matched);
+    EXPECT_EQ(0u, k.MallocUsed()) << "matched key with short suffix must be inline";
+  }
+
+  // Matched but long suffix -> not inline, substitution still applies (heap-allocated, smaller).
+  roundtrip(kPrefix + string(200, 'x'));
+
+  // Second prefix; empty suffix; unmatched key; short literal that resembles a substituted blob.
+  roundtrip("orders:");
+  roundtrip(kPrefix);  // empty suffix -> [token] = 1 byte
+  roundtrip("some_other_key:12345");
+  roundtrip("hi");
+
+  // Collision safety: a literal key equal to the substituted byte form must not alias the
+  // substituted key. Store the substituted key, then confirm a literal "\x07..." compares unequal.
+  {
+    CompactKey subst;
+    subst.SetString(matched);
+    string literal_collision = string(1, char(7)) + "232472614|4442";  // mimics [token][suffix]
+    EXPECT_FALSE(subst == literal_collision);
+    EXPECT_NE(subst.HashCode(), CompactObj::HashCode(literal_collision));
+  }
+
+  // Values are not substituted even if they share the prefix.
+  {
+    CompactValue v;
+    v.SetString(matched);
+    string actual;
+    v.GetString(&actual);
+    EXPECT_EQ(matched, actual);
+    EXPECT_GT(v.MallocUsed(), 0u) << "40-char value should stay heap-allocated (no substitution)";
+  }
+
+  // Disable for subsequent tests in the fixture.
+  ASSERT_TRUE(CompactObj::SetKeyPrefixTableThreadLocal({}));
+  EXPECT_FALSE(CompactObj::IsKeyPrefixSubstitutionEnabled());
+}
+
 TEST_F(CompactObjectTest, GetByteAtOffset) {
   // Inline string (INLINE_TAG)
   {
