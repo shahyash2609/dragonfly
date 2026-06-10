@@ -61,6 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: create-release
     strategy:
+      fail-fast: false
       matrix:
         include:
           # Build with these flags
