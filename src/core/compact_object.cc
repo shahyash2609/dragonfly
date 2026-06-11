@@ -810,19 +810,21 @@ CompactObj::~CompactObj() {
 
 CompactObj& CompactObj::operator=(CompactObj&& o) noexcept {
   DCHECK(&o != this);
+  // is_key is immutable for an object's lifetime (a slot is always a key or always a value), so a
+  // move never crosses domains. SetMeta preserves our is_key below.
+  DCHECK_EQ(is_key(), o.is_key());
 
-  // Adopt the source's key-ness so the moved bytes always decode in their own domain
-  // (keys vs. string values). This mirrors the move-constructor, which builds `this` with
-  // o.is_key(). SetMeta preserves the destination's is_key, so we reapply o's afterwards.
-  const bool o_is_key = o.is_key();
-  SetMeta(o.taglen_, o.mask_);  // frees own previous resources
-  mask_bits_.is_key = o_is_key;
+  SetMeta(o.taglen_, o.mask_);  // frees own previous resources; preserves our is_key
   encoding_ = o.encoding_;
   memcpy(&u_, &o.u_, sizeof(u_));
 
   o.taglen_ = 0;  // forget all data
   o.encoding_ = 0;
+  // Clear o's data bits but keep its is_key: the bit is immutable, and a moved-from object may be
+  // reused in the same (key/value) role. mask_ holds is_key since the relocation, so restore it.
+  const bool o_is_key = o.is_key();
   o.mask_ = 0;
+  o.mask_bits_.is_key = o_is_key;
   return *this;
 }
 
@@ -1532,7 +1534,11 @@ void CompactObj::Reset() {
   }
   taglen_ = 0;
   encoding_ = 0;
+  // is_key lives in mask_ since the relocation but is immutable for the object's lifetime, so
+  // preserve it (the pre-relocation const is_key_ was untouched by Reset).
+  const bool k = mask_bits_.is_key;
   mask_ = 0;
+  mask_bits_.is_key = k;
 }
 
 uint8_t CompactObj::GetFirstByte() const {
