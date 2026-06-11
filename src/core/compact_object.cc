@@ -810,9 +810,13 @@ CompactObj::~CompactObj() {
 
 CompactObj& CompactObj::operator=(CompactObj&& o) noexcept {
   DCHECK(&o != this);
-  DCHECK_EQ(is_key(), o.is_key());
 
+  // Adopt the source's key-ness so the moved bytes always decode in their own domain
+  // (keys vs. string values). This mirrors the move-constructor, which builds `this` with
+  // o.is_key(). SetMeta preserves the destination's is_key, so we reapply o's afterwards.
+  const bool o_is_key = o.is_key();
   SetMeta(o.taglen_, o.mask_);  // frees own previous resources
+  mask_bits_.is_key = o_is_key;
   encoding_ = o.encoding_;
   memcpy(&u_, &o.u_, sizeof(u_));
 
