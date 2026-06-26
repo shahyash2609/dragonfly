@@ -64,6 +64,12 @@ ABSL_FLAG(bool, tiered_experimental_hash_support, false, "Experimental hash data
 
 ABSL_FLAG(bool, tiered_experimental_list_support, false, "Experimental list node offloading");
 
+ABSL_FLAG(bool, tiered_cold_overwrites, false,
+          "If true, values offloaded as a result of a write/overwrite are externalized straight "
+          "to disk instead of being retained in the in-RAM cooling pool. Prevents write-heavy "
+          "bursts from evicting genuinely read-hot entries out of the cool pool; reads still "
+          "upload values back into RAM. Only takes effect when tiered_experimental_cooling is on");
+
 namespace dfly {
 
 using namespace std;
@@ -152,6 +158,7 @@ class TieredStorage::ShardOpManager : public tiering::OpManager {
     UnblockBackpressure(key, false);
     if (auto pv = Find(key.first, key.second); pv) {
       pv->SetStashPending(false);
+      pv->SetStashCold(false);
       stats_.total_cancels++;
     }
   }
@@ -260,7 +267,11 @@ class TieredStorage::ShardOpManager : public tiering::OpManager {
       stats_.total_stashes++;
 
       StashDescriptor blobs{FragmentRef{*pv}.GetSerializationDescr()};
-      if (ts_->config_.experimental_cooling) {
+      // A write/overwrite driven stash is marked cold so it bypasses cooling and goes disk-only,
+      // keeping write bursts from evicting read-hot entries out of the cool pool.
+      bool cold = pv->IsStashCold();
+      pv->SetStashCold(false);
+      if (ts_->config_.experimental_cooling && !cold) {
         RetireColdEntries(pv->MallocUsed());
         ts_->CoolDown(key.first, key.second, segment, blobs.rep, pv);
       } else {
@@ -606,6 +617,7 @@ void TieredStorage::UpdateFromFlags() {
       .upload_threshold = absl::GetFlag(FLAGS_tiered_upload_threshold),
       .experimental_hash_offload = absl::GetFlag(FLAGS_tiered_experimental_hash_support),
       .experimental_list_offload = absl::GetFlag(FLAGS_tiered_experimental_list_support),
+      .cold_overwrites = absl::GetFlag(FLAGS_tiered_cold_overwrites),
   };
 }
 
@@ -613,7 +625,7 @@ std::vector<std::string> TieredStorage::GetMutableFlagNames() {
   return base::GetFlagNames(FLAGS_tiered_min_value_size, FLAGS_tiered_experimental_cooling,
                             FLAGS_tiered_max_pending_stash_bytes, FLAGS_tiered_offload_threshold,
                             FLAGS_tiered_upload_threshold, FLAGS_tiered_experimental_hash_support,
-                            FLAGS_tiered_experimental_list_support);
+                            FLAGS_tiered_experimental_list_support, FLAGS_tiered_cold_overwrites);
 }
 
 bool TieredStorage::ShouldOffload() const {
@@ -794,6 +806,9 @@ void StashPrimeValue(DbIndex dbid, std::string_view key, PrimeValue* pv, TieredS
                      BackPressureFuture* backpressure) {
   if (auto blobs = ts->ShouldStash(*pv); blobs) {
     pv->SetStashPending(true);
+    // This is the write path (proactive offload on edit); mark cold so the value skips cooling.
+    if (ts->ColdStashWrites())
+      pv->SetStashCold(true);
     ts->StashPrimeValue(dbid, key, *blobs, backpressure);
   }
 }
