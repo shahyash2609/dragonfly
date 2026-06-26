@@ -31,6 +31,7 @@ ABSL_DECLARE_FLAG(bool, tiered_experimental_cooling);
 ABSL_DECLARE_FLAG(uint64_t, registered_buffer_size);
 ABSL_DECLARE_FLAG(bool, tiered_experimental_hash_support);
 ABSL_DECLARE_FLAG(bool, tiered_experimental_list_support);
+ABSL_DECLARE_FLAG(bool, tiered_cold_overwrites);
 ABSL_DECLARE_FLAG(unsigned, list_tiering_threshold);
 ABSL_DECLARE_FLAG(int32_t, list_max_listpack_size);
 
@@ -231,6 +232,41 @@ TEST_P(LatentCoolingTSTest, MGET) {
   auto elements = resp.GetVec();
   for (size_t i = 0; i < elements.size(); i++)
     EXPECT_EQ(elements[i], values[i]);
+}
+
+// With tiered_cold_overwrites, a write-driven offload is externalized straight to disk and skips
+// the in-RAM cooling pool, while the default keeps the value cool.
+TEST_F(TieredStorageTest, ColdOverwritesBypassCooling) {
+  absl::FlagSaver saver;
+  SetFlag(&FLAGS_tiered_offload_threshold, 1.0f);  // force offloading
+  SetFlag(&FLAGS_tiered_experimental_cooling, true);
+
+  // Baseline: cooling on, cold overwrites off -> offloaded write stays in the cool pool.
+  SetFlag(&FLAGS_tiered_cold_overwrites, false);
+  UpdateFromFlags();
+
+  Run({"SET", "hot", BuildString(4000)});
+  ExpectConditionWithinTimeout([this] { return GetMetrics().tiered_stats.total_stashes >= 1; });
+
+  auto metrics = GetMetrics();
+  EXPECT_EQ(metrics.db_stats[0].tiered_entries, 1);
+  size_t cool_baseline = metrics.tiered_stats.cold_storage_bytes;
+  EXPECT_GT(cool_baseline, 0u);  // retained in RAM cool pool
+
+  // Enable cold overwrites: the next write-driven offload must skip cooling (disk-only).
+  SetFlag(&FLAGS_tiered_cold_overwrites, true);
+  UpdateFromFlags();
+
+  Run({"SET", "cold", BuildString(4000)});
+  ExpectConditionWithinTimeout([this] { return GetMetrics().tiered_stats.total_stashes >= 2; });
+
+  metrics = GetMetrics();
+  EXPECT_EQ(metrics.db_stats[0].tiered_entries, 2);
+  // "cold" was externalized directly, so the cool pool didn't grow beyond "hot".
+  EXPECT_EQ(metrics.tiered_stats.cold_storage_bytes, cool_baseline);
+
+  // Value is still readable (fetched from disk).
+  EXPECT_EQ(Run({"GET", "cold"}), BuildString(4000));
 }
 
 // Issue many APPEND commands to an offloaded value that are executed at once (with CLIENT PAUSE).

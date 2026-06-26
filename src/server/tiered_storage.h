@@ -112,6 +112,11 @@ class TieredStorage : public TieredStorageBase {
   bool ShouldOffload() const;     // True if below tiered_offload_threshold
   float WriteDepthUsage() const;  // Ratio (0-1) of used storage_write_depth for stashes
 
+  // True if write/overwrite driven stashes should bypass the cooling pool (disk-only).
+  bool ColdStashWrites() const {
+    return config_.cold_overwrites && config_.experimental_cooling;
+  }
+
   // How much we are above tiered_upload_threshold. Can be negative!
   int64_t UploadBudget() const;
   size_t CoolMemoryUsage() const {
@@ -155,6 +160,7 @@ class TieredStorage : public TieredStorageBase {
     float upload_threshold;
     bool experimental_hash_offload;
     bool experimental_list_offload;
+    bool cold_overwrites;
   } config_;
 
   mutable struct {

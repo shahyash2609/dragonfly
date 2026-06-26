@@ -302,6 +302,14 @@ class CompactObj {
     mask_bits_.touched = e;
   }
 
+  bool IsStashCold() const {
+    return mask_bits_.stash_cold;
+  }
+
+  void SetStashCold(bool e) {
+    mask_bits_.stash_cold = e;
+  }
+
   bool DefragIfNeeded(PageUsage* page_usage);
 
   void SetOmitDefrag(bool v) {
@@ -660,7 +668,12 @@ class CompactObj {
       // Relocated out of the trailing bitfield byte to free a 3rd bit for encoding_ (needed for
       // PREFIX_ENC). Set once at construction; SetMeta() preserves it across resource changes.
       uint8_t is_key : 1;
-      uint8_t unused : 1;
+
+      // Tiering hint: when set, the value is externalized straight to disk on stash completion
+      // instead of being retained in the in-RAM cooling pool. Used to keep write/overwrite driven
+      // offloads out of the read cache. Set before stashing, cleared on completion/abort.
+      uint8_t stash_cold : 1;
+
       uint8_t mc_flag : 1;  // Marks keys that have memcache flags assigned.
 
       // IO_PENDING is set when the tiered storage has issued an i/o request to save the value.
