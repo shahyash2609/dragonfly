@@ -194,6 +194,12 @@ class CompactObj {
     ASCII1_ENC = 1,
     ASCII2_ENC = 2,
     HUFFMAN_ENC = 3,
+    // Static prefix substitution: stored form is [1-byte token][suffix]; the token maps to a
+    // configured key prefix via a thread-local table. Decode prepends the prefix.
+    // PREFIX_HUFFMAN_ENC additionally huffman-encodes the suffix (Phase 5). Requires encoding_ to
+    // be a 3-bit field.
+    PREFIX_ENC = 4,
+    PREFIX_HUFFMAN_ENC = 5,
   };
 
  public:
@@ -230,15 +236,15 @@ class CompactObj {
     LIST_NODE        // OBJ_LIST, QList::Node
   };
 
-  explicit CompactObj(bool is_key)
-      : is_key_{is_key}, taglen_{0}, encoding_{0} {  // default - empty string
+  explicit CompactObj(bool is_key) : taglen_{0}, encoding_{0} {  // default - empty string
+    mask_bits_.is_key = is_key;
   }
 
   CompactObj(std::string_view str, bool is_key) : CompactObj(is_key) {
     SetString(str);
   }
 
-  CompactObj(CompactObj&& cs) noexcept : CompactObj(cs.is_key_) {
+  CompactObj(CompactObj&& cs) noexcept : CompactObj(cs.is_key()) {
     operator=(std::move(cs));
   };
 
@@ -502,6 +508,19 @@ class CompactObj {
   };
 
   static bool InitHuffmanThreadLocal(HuffmanDomain domain, std::string_view hufftable);
+
+  // --- Static key-prefix substitution (PREFIX_ENC) ---
+  // Each entry maps a key prefix to a unique 1-byte token. A key beginning with a configured prefix
+  // is stored as [token][suffix], shrinking it (often below kInlineLen so it stays inline). The
+  // list is set once per thread at startup (mirror InitHuffmanThreadLocal) and must be initialized
+  // on every shard. Tokens must be unique; prefixes must be non-empty and at most kMaxKeyPrefixLen
+  // bytes (this bounds the decode scratch buffer used by HashCode for inline keys). Returns false
+  // on invalid or duplicate config.
+  static constexpr unsigned kMaxKeyPrefixLen = 110;
+  using KeyPrefixEntry = std::pair<std::string, uint8_t>;
+  static bool SetKeyPrefixTableThreadLocal(const std::vector<KeyPrefixEntry>& entries);
+  static bool IsKeyPrefixSubstitutionEnabled();  // thread-local
+
   static MemoryResource* memory_resource();  // thread-local.
 
   template <typename T, typename... Args> static T* AllocateMR(Args&&... args) {
@@ -523,7 +542,12 @@ class CompactObj {
   std::array<std::string_view, 2> GetRawString() const;
 
   StrEncoding GetStrEncoding() const {
-    return StrEncoding{encoding_, is_key_};
+    return StrEncoding{encoding_, is_key()};
+  }
+
+  // True if this object is used as a key (vs a value). Set once at construction.
+  bool is_key() const {
+    return mask_bits_.is_key;
   }
 
   bool HasAllocated() const;
@@ -555,7 +579,10 @@ class CompactObj {
       memset(u_.inline_str, 0, kInlineLen);
     }
     taglen_ = taglen;
+    // is_key lives in mask_; preserve it so callers passing mask=0 (or o.mask_) don't clobber it.
+    const bool k = mask_bits_.is_key;
     mask_ = mask;
+    mask_bits_.is_key = k;
   }
 
   struct ExternalPtr {
@@ -642,7 +669,10 @@ class CompactObj {
   union {
     uint8_t mask_ = 0;
     struct {
-      uint8_t unused : 2;
+      // Relocated out of the trailing bitfield byte to free a 3rd bit for encoding_ (needed for
+      // PREFIX_ENC). Set once at construction; SetMeta() preserves it across resource changes.
+      uint8_t is_key : 1;
+      uint8_t unused : 1;
       uint8_t mc_flag : 1;  // Marks keys that have memcache flags assigned.
 
       // IO_PENDING is set when the tiered storage has issued an i/o request to save the value.
@@ -661,9 +691,11 @@ class CompactObj {
   };
 
   // TODO: use c++20 bitfield initializers
-  const bool is_key_ : 1;
+  // is_key_ relocated into mask_bits_.is_key to free a bit here; encoding_ widened to 3 bits so it
+  // can hold PREFIX_ENC/PREFIX_HUFFMAN_ENC. taglen_(5) + encoding_(3) still pack into one byte, so
+  // sizeof(CompactObj) stays 18 (16-byte u_ + mask_ byte + this byte).
   uint8_t taglen_ : 5;    // Either length of inline string or tag of type
-  uint8_t encoding_ : 2;  // Encoding of string values
+  uint8_t encoding_ : 3;  // Encoding of string values (EncodingEnum)
 };
 
 struct CompactKey : public CompactObj {

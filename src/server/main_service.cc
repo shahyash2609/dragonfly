@@ -121,6 +121,14 @@ ABSL_FLAG(string, huffman_table, "",
           " exported via "
           "DEBUG COMPRESSION EXPORT. if the flag is empty no huffman compression is applied.");
 
+ABSL_FLAG(
+    string, key_prefix_substitution, "",
+    "a ';'-separated list of <prefix>|<token> entries. Each configured key prefix is replaced "
+    "with its 1-byte <token> (a single character, unique across entries) under an internal "
+    "PREFIX_ENC encoding, shrinking the stored key so it can fit inline. The token is "
+    "exactly one byte; '|' separates prefix from token within an entry, ';' separates "
+    "entries. If empty, no prefix substitution is applied.");
+
 ABSL_FLAG(bool, jsonpathv2, true,
           "If true uses Dragonfly jsonpath implementation, "
           "otherwise uses legacy jsoncons implementation.");
@@ -737,6 +745,32 @@ void SetHuffmanTable(const std::string& huffman_table) {
   }
 }
 
+void SetKeyPrefixTable(const std::string& spec) {
+  if (spec.empty())
+    return;
+
+  std::vector<CompactObj::KeyPrefixEntry> entries;
+  for (string_view entry : absl::StrSplit(spec, ';', absl::SkipEmpty())) {
+    vector<string_view> kv = absl::StrSplit(entry, '|');
+    if (kv.size() != 2 || kv[0].empty() || kv[1].size() != 1) {
+      LOG(ERROR) << "Invalid key_prefix_substitution entry (need <prefix>|<1-byte-token>): "
+                 << entry;
+      continue;
+    }
+    entries.emplace_back(string{kv[0]}, uint8_t(kv[1][0]));
+  }
+  if (entries.empty())
+    return;
+
+  atomic_bool success = true;
+  shard_set->RunBriefInParallel([&](auto*) {
+    if (!CompactObj::SetKeyPrefixTableThreadLocal(entries))
+      success = false;
+  });
+  LOG_IF(ERROR, !success) << "Failed to install key prefix substitution table (duplicate token or "
+                             "prefix too long?)";
+}
+
 string_view CommandOptName(CO::CommandOpt opt, bool enabled) {
   using namespace CO;
   if (!enabled) {
@@ -1133,6 +1167,7 @@ void Service::Init(util::AcceptServer* acceptor, std::vector<facade::Listener*> 
     UpdateSchedulerFlagsOnThread();
   });
   SetHuffmanTable(GetFlag(FLAGS_huffman_table));
+  SetKeyPrefixTable(GetFlag(FLAGS_key_prefix_substitution));
 
   // Requires that shard_set will be initialized before because server_family_.Init might
   // load the snapshot.
