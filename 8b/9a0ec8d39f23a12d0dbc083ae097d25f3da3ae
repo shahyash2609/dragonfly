@@ -1,0 +1,33 @@
+src/core/compact_object.h
+  s_ebb93a7b73d8d2::t_39198d523cdd1f 655-661
+  s_ebb93a7b73d8d2::t_6c9ccef6a3334a 302-311
+src/server/tiered_storage_test.cc
+  s_ebb93a7b73d8d2::t_fbe6087fbe41d9 157-191
+  s_ebb93a7b73d8d2::t_e1291235d26795 34
+src/server/tiered_storage.h
+  s_ebb93a7b73d8d2::t_0fc069a6b5ce97 133-138
+  s_ebb93a7b73d8d2::t_39e8855588954f 174
+src/server/tiered_storage.cc
+  s_ebb93a7b73d8d2::t_493a2ccc0cfecf 279-285
+  s_ebb93a7b73d8d2::t_5895b141bce9ab 67-72
+  s_ebb93a7b73d8d2::t_ce4b4d049db526 667
+  s_ebb93a7b73d8d2::t_fb965c05d8e8b1 168
+  s_ebb93a7b73d8d2::t_125d47268d5a07 654
+  s_ebb93a7b73d8d2::t_4e05d1176a33ac 879-883
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "8b9a0ec8d39f23a12d0dbc083ae097d25f3da3ae",
+  "prompts": {},
+  "sessions": {
+    "s_ebb93a7b73d8d2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0ceb7b92-6218-4c8d-bd1b-e5939dbaa379",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "shahyash2609 <yash.shah@meesho.com>"
+    }
+  }
+}
