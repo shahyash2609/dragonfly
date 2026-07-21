@@ -1,0 +1,40 @@
+src/server/tiered_storage.cc
+  s_ebb93a7b73d8d2::t_8c77d62acf141d 554-558
+  s_ebb93a7b73d8d2::t_380d52dbe4621d 289-292,294
+  s_ebb93a7b73d8d2::t_2741c9569cba61 674
+  s_ebb93a7b73d8d2::t_a908caaf3ba024 68
+  s_ebb93a7b73d8d2::t_dac6b86c771639 899-903
+  s_ebb93a7b73d8d2::t_5895b141bce9ab 69-73
+  s_ebb93a7b73d8d2::t_493a2ccc0cfecf 288,293
+  s_ebb93a7b73d8d2::t_01961d214c6d4f 688
+  s_ebb93a7b73d8d2::t_4f891fba644191 348-353
+  s_ebb93a7b73d8d2::t_5bc7a2a0c3b164 164-171,175
+  s_ebb93a7b73d8d2::t_ab6dbe7296ec23 16
+src/server/tiered_storage.h
+  s_ebb93a7b73d8d2::t_789252d9e5a017 139-140
+  s_ebb93a7b73d8d2::t_b5628f3eb9ba48 40-43
+  s_ebb93a7b73d8d2::t_2c64fef9b783cd 178
+  s_ebb93a7b73d8d2::t_0fc069a6b5ce97 137-138,141-142
+src/server/tiered_storage_test.cc
+  s_ebb93a7b73d8d2::t_1b27f474c9d38c 170
+  s_ebb93a7b73d8d2::t_ecc2bcd7a093e0 158,160
+  s_ebb93a7b73d8d2::t_8a67b6e061c779 179
+  s_ebb93a7b73d8d2::t_2739ca81fe8e17 34
+  s_ebb93a7b73d8d2::t_fbe6087fbe41d9 157,159,161-169,171-178,180-191
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "11d18880859b66806be8a56f8717724186a645be",
+  "prompts": {},
+  "sessions": {
+    "s_ebb93a7b73d8d2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0ceb7b92-6218-4c8d-bd1b-e5939dbaa379",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
