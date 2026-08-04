@@ -10,6 +10,7 @@ src/server/tiered_storage.cc
   s_ebb93a7b73d8d2::t_058673f2f70cad 70-75
   s_ebb93a7b73d8d2::t_a380c8ac586240 922-924
   s_ebb93a7b73d8d2::t_8eb6bfd4357afa 171
+  s_a6bb8cc123c1c1::t_7f4b10594126f2 684
 src/server/tiered_storage_test.cc
   s_ebb93a7b73d8d2::t_404df39a7d83a9 332-366
   s_ebb93a7b73d8d2::t_9d8e4021caef23 34
@@ -20,6 +21,14 @@ src/server/tiered_storage_test.cc
   "base_commit_sha": "0b5dd6d79b0b7f3807b707ca7fec4947fe368515",
   "prompts": {},
   "sessions": {
+    "s_a6bb8cc123c1c1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b2dc66a7-7a22-46c6-bded-dd6ddc7fa4c5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "shahyash2609 <yash.shah@meesho.com>"
+    },
     "s_ebb93a7b73d8d2": {
       "agent_id": {
         "tool": "claude",
