@@ -1,0 +1,20 @@
+src/core/compact_object.cc
+  s_c3373da20892a2::t_8c7035820e067e 820-822,824,830-832,834
+  s_c3373da20892a2::t_873d19f9f1bbf7 1561-1563,1565
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "e482827ce5d4a4783a0575e78fd3a30d5162c664",
+  "prompts": {},
+  "sessions": {
+    "s_c3373da20892a2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2a459ef4-d2d6-4a9a-9b64-8b8b9f166aaf",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "shahyash2609 <yash.shah@meesho.com>"
+    }
+  }
+}
