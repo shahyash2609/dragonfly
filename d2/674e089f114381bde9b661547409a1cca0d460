@@ -1,0 +1,21 @@
+tests/dragonfly/config_test.py
+  s_d5445fd4499690::t_35d1e199bb441e 25-47
+src/server/main_service.cc
+  s_d5445fd4499690::t_d2ede94405abf5 1055-1057
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "d2674e089f114381bde9b661547409a1cca0d460",
+  "prompts": {},
+  "sessions": {
+    "s_d5445fd4499690": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4d10b70b-1452-45de-afb4-75434ed20363",
+        "model": "claude-fable-5"
+      },
+      "human_author": "shahyash2609 <yash.shah@meesho.com>"
+    }
+  }
+}
