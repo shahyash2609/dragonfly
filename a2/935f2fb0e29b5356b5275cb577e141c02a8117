@@ -1,0 +1,21 @@
+tests/dragonfly/connection_test.py
+  s_35f8720c482ae6::t_12c172451f3858 2618-2639
+src/server/server_state.cc
+  s_35f8720c482ae6::t_eee7975a9007da 338-341,346-351
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a2935f2fb0e29b5356b5275cb577e141c02a8117",
+  "prompts": {},
+  "sessions": {
+    "s_35f8720c482ae6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a2a83c1d-847f-4883-835a-7ac29fef9bc1",
+        "model": "unknown"
+      },
+      "human_author": "shahyash2609 <yash.shah@meesho.com>"
+    }
+  }
+}
