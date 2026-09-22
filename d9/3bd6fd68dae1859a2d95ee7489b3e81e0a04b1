@@ -1,0 +1,22 @@
+src/facade/dragonfly_connection.cc
+  s_35f8720c482ae6::t_35e447b7352e5d 1477-1479
+tests/dragonfly/connection_test.py
+  s_35f8720c482ae6::t_ca5e44da93bf91 2618-2625,2634,2647-2661
+  s_35f8720c482ae6::t_97b7c725e4ee8f 2662-2663
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d93bd6fd68dae1859a2d95ee7489b3e81e0a04b1",
+  "prompts": {},
+  "sessions": {
+    "s_35f8720c482ae6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a2a83c1d-847f-4883-835a-7ac29fef9bc1",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "shahyash2609 <yash.shah@meesho.com>"
+    }
+  }
+}
