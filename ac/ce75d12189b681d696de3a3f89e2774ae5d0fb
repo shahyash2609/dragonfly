@@ -1,0 +1,19 @@
+tests/dragonfly/connection_test.py
+  s_35f8720c482ae6::t_cfe51614d7d482 2647,2649-2653,2655,2658-2678,2680-2683
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "acce75d12189b681d696de3a3f89e2774ae5d0fb",
+  "prompts": {},
+  "sessions": {
+    "s_35f8720c482ae6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a2a83c1d-847f-4883-835a-7ac29fef9bc1",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "shahyash2609 <yash.shah@meesho.com>"
+    }
+  }
+}
