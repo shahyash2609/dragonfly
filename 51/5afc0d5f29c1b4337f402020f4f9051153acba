@@ -1,0 +1,21 @@
+tests/dragonfly/connection_test.py
+  s_64b5efb5469f13::t_e9f11087bb5482 2688-2708
+src/server/server_state.cc
+  s_64b5efb5469f13::t_0eb063cb50980d 343-349
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "515afc0d5f29c1b4337f402020f4f9051153acba",
+  "prompts": {},
+  "sessions": {
+    "s_64b5efb5469f13": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "098b1fa2-7a6a-42d8-bd87-42651cf67907",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "shahyash2609 <yash.shah@meesho.com>"
+    }
+  }
+}
