@@ -1,0 +1,37 @@
+tests/dragonfly/connection_test.py
+  s_64b5efb5469f13::t_e9f11087bb5482 2693-2713
+  s_35f8720c482ae6::t_97b7c725e4ee8f 2691-2692
+  s_35f8720c482ae6::t_cfe51614d7d482 2652,2654-2658,2660,2663-2683,2685-2688
+  s_35f8720c482ae6::t_12c172451f3858 2631-2638,2640-2651
+  s_35f8720c482ae6::t_ca5e44da93bf91 2623-2630,2639,2653,2659,2661-2662,2684,2689-2690
+src/server/server_state.cc
+  s_35f8720c482ae6::t_eee7975a9007da 338,350-351
+  s_64b5efb5469f13::t_0eb063cb50980d 343-349
+src/facade/dragonfly_connection.cc
+  s_35f8720c482ae6::t_a6b1519097d35a 1477
+  s_35f8720c482ae6::t_35e447b7352e5d 1475-1476
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1a590b7544472bed66d25d5ebfdaab5158a66687",
+  "prompts": {},
+  "sessions": {
+    "s_35f8720c482ae6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a2a83c1d-847f-4883-835a-7ac29fef9bc1",
+        "model": "unknown"
+      },
+      "human_author": "shahyash2609 <yash.shah@meesho.com>"
+    },
+    "s_64b5efb5469f13": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "098b1fa2-7a6a-42d8-bd87-42651cf67907",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "shahyash2609 <yash.shah@meesho.com>"
+    }
+  }
+}
